@@ -1,0 +1,61 @@
+From what you have heard and read in the news, do you think that the seriousness of global climate
+change has been generally exaggerated, generally correct, or is it generally underestimated ?
+
+which of the following statements do you agree with more? T
+
+  - Environment must be protected
+
+  - Economic Growth must be protected
+
+  - Equal priority
+
+ Do you think that global climate change can be reduced without individuals making major
+ lifestyle changes, or only if individuals make major lifestyle changes?
+
+  - Without Major Changes
+
+
+  - Only with Major Changes
+
+
+  - Unsure
+
+
+ Should the United Nations be responsible for generating a binding international agreement to
+ regulate greenhouse gas emissions ?
+
+   - Yes
+
+
+   - No
+
+
+Do you support action such as raising taxes on the commodities which releases green house gases
+
+  - Yes
+
+  - No
+
+
+Do you think humans are responsible for climate change
+
+  - Yes
+  - No
+
+Do you think Humans can take actions to alleviate climate change
+ - Yes
+ - No
+
+Do you think climate change is serious threat
+ - Yes
+ - No
+
+
+
+ Covariates :
+   1) Age bucket
+   2) Gender
+   3) Level of Education
+   4) Natural Calamity occurrence in the residence area
+   5) Political inclination
+   6) 

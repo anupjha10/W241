@@ -1,0 +1,210 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(MASS)
+library(data.table) 
+library(stargazer)
+```
+
+```{r}
+#d_raw <- fread('./Pre_PilotData.csv')
+#d_raw <- fread('./PilotData.csv')
+d_raw <- fread('./FinalData.csv')
+```
+
+```{r}
+d_raw
+```
+```{r}
+#Subset the columns from raw data into data table on which we would work 
+columns <- c("Progress","Y1","Y2","Y3","Y4","Y5","Y6","Y7",
+             "Age","Education","Gender","LivingAreaAffected","ClimateChangeAwareness",
+             "PreTreatment","Income","PoliticalView","Community","Group","SurveyTime",
+             "CovariateTime","RejectedOutcomeQuestions","RejectedCovariateQuestions") 
+d <- d_raw[,..columns]
+#Create lookup for likert scales one for positive questions
+support_likert_scale <- c('Strongly agree'=5,'Strongly Agree'=5,
+                          'Somewhat agree'=4,'Somewhat Agree'=4,
+                          'Neither agree nor disagree'=3,'Neither Agree nor Disagree'=3,
+                          'Neither agree or disagree'=3,'Neither Agree or Disagree'=3,
+                          'Somewhat disagree'=2,'Somewhat Disagree'=2,
+                          'Strongly disagree'=1,'Strongly Disagree'=1)
+#lookup for negative questions 4 and 6
+
+anti_likert_scale <- c('Strongly agree'=1,'Strongly Agree'=1,
+                          'Somewhat agree'=2,'Somewhat Agree'=2,
+                          'Neither agree nor disagree'=3,'Neither Agree nor Disagree'=3,
+                          'Neither agree or disagree'=3,'Neither Agree or Disagree'=3,
+                          'Somewhat disagree'=4,'Somewhat Disagree'=4,
+                          'Strongly disagree'=5,'Strongly Disagree'=5)
+
+
+#convert character to numeric value for the likert scale output variables
+#d[,Y1_num:=support_likert_scale[Y1]]
+#d[,Y2_num:=support_likert_scale[Y2]]
+#d[,Y3_num:=support_likert_scale[Y3]]
+#d[,Y4_num:=anti_likert_scale[Y4]]
+#d[,Y5_num:=support_likert_scale[Y5]]
+#d[,Y6_num:=anti_likert_scale[Y6]]
+#d[,Y7_num:=support_likert_scale[Y7]]
+
+d[,c("Y1_num","Y2_num","Y3_num","Y4_num","Y5_num","Y6_num","Y7_num") :=
+    list(support_likert_scale[Y1],
+      support_likert_scale[Y2],
+      anti_likert_scale[Y3],
+      support_likert_scale[Y4],
+      anti_likert_scale[Y5],
+      support_likert_scale[Y6],
+      support_likert_scale[Y7])
+ ]
+#add factor variables for the covariates
+d[,c("Age_factor","Education_factor","Gender_factor","LivingAreaAffected_factor",
+     "ClimateChangeAwareness_factor","PreTreatment_factor","Income_factor",
+     "PoliticalView_factor","Community_factor") := 
+    list(factor(Age,ordered=T,levels=c("Less than 25 years",
+                                "25-34 years",
+                                "35-44 years",
+                                "45-54 years",
+                                "55 years or older")),
+         factor(Education,ordered=T,levels=c("Less than high school",
+                                              "High school graduate",
+                                              "Some college",
+                                              "2 year degree",
+                                              "4 year degree",
+                                              "Professional degree",
+                                              "Doctorate"
+                                             )),
+         factor(Gender,ordered=F,levels=c("",
+                                          "Male",
+                                          "Female",
+                                          "Other")),
+         factor(LivingAreaAffected,ordered=T,levels=c("No","Yes")),
+         factor(ClimateChangeAwareness,ordered=T,levels=c("","No","Yes")),
+         factor(PreTreatment,ordered=T,levels=c("",
+                                                "Strongly disagree",
+                                                "Somewhat disagree",
+                                                "Neither agree nor disagree",
+                                                "Somewhat agree",
+                                                "Strongly agree"
+                                               )),
+         factor(Income,ordered=T,levels=c("Less than $50,000",
+                                          "$50,000 - $74,000",
+                                          "$75,000 - $99,000",
+                                          "$100,000 - $149,000",
+                                          "More than $150,000")),
+         factor(PoliticalView,ordered=F,levels=c("Very Liberal",
+                                                 "Slightly Liberal",
+                                                 "Slightly Conservative",
+                                                 "Very Conservative",
+                                                 "Neither Conservative nor Liberal")),
+         factor(Community,ordered=F,levels=c("Urban",
+                                             "Suburban",
+                                             "Rural"
+                                             ))
+         )]
+```
+```{r}
+d
+```
+```{r}
+summary(d)
+```
+```{r}
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(mean(Y1_num,na.rm = T),mean(Y2_num,na.rm = T), mean(Y3_num,na.rm =T), mean(Y4_num,na.rm =T),
+     mean(Y5_num,na.rm =T),mean(Y6_num,na.rm =T),mean(Y7_num,na.rm =T)),
+  by=Group]
+```
+```{r}
+d[RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes"&Progress==100,.N]
+```
+```{r}
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(sd(Y1_num,na.rm = T),sd(Y2_num,na.rm = T), sd(Y3_num,na.rm =T), sd(Y4_num,na.rm =T),
+     sd(Y5_num,na.rm =T),sd(Y6_num,na.rm =T),sd(Y7_num,na.rm =T)),
+  by=Group]
+
+```
+```{r}
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(sd(Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num,na.rm = T)),
+  by=Group]
+
+
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(mean(Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num,na.rm = T)),
+  by=Group]
+```
+
+```{r}
+#test for covariate balance 
+#subset placebo and treatment 
+d_treatment_exp <- d[Group %in% c('Placebo','Treatment')&!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+d_treatment_exp[,treat_dummy:=ifelse(Group=='Placebo',0,1)]
+lm1_treat <- d_treatment_exp[,lm(treat_dummy~1)]
+lm2_treat <- d_treatment_exp[,lm(treat_dummy~Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+( anova_test_report_treat_exp <- anova(lm1_treat,lm2_treat,test='F') )
+#d_treatment_exp[,plot(treat_dummy,jitter(Y2_num))]
+#lm_treat_test <- d_treatment_exp[,lm(Y1_num~treat_dummy+PreTreatment_factor+Education_factor+ClimateChangeAwareness_factor)]
+lm_treat_test <- d_treatment_exp[,lm(Y1_num~treat_dummy+Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+print(summary(lm_treat_test))
+#subset placebo and antitreatment
+d_antitreatment_exp <- d[Group %in% c('Placebo','AntiTreatment')&!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+d_antitreatment_exp[,treat_dummy:=ifelse(Group=='Placebo',0,1)]
+lm1_antitreat <- d_antitreatment_exp[,lm(treat_dummy~1)]
+lm2_antitreat <- d_antitreatment_exp[,lm(treat_dummy~Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+( anova_test_report_antitreat_exp <- anova(lm1_antitreat,lm2_antitreat,test='F') )
+#d_antitreatment_exp[,plot(treat_dummy,jitter(Y2_num))]
+#lm_antitreat_test <- d_antitreatment_exp[,lm(Y1_num~treat_dummy+PreTreatment_factor+Education_factor+ClimateChangeAwareness_factor)]
+lm_antitreat_test <- d_antitreatment_exp[,lm(Y1_num~treat_dummy+Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+print(summary(lm_antitreat_test))
+```
+```{r}
+d_treatment_exp[,.N,by=PreTreatment_factor]
+```
+```{r}
+polr_treatmodel <- d_treatment_exp[,polr(factor(Y1_num,ordered = T, levels=c(1,2,3,4,5) 
+                                                )~treat_dummy+PreTreatment_factor,Hess=TRUE)]
+summary(polr_treatmodel)
+coef(polr_treatmodel)
+exp(coef(polr_treatmodel))
+```
+```{r}
+polr_treatmodel <- d_antitreatment_exp[,polr(factor(Y1_num,ordered = T, levels=c(1,2,3,4,5) 
+                                                )~treat_dummy+PreTreatment_factor,Hess=TRUE)]
+summary(polr_treatmodel)
+coef(polr_treatmodel)
+exp(coef(polr_treatmodel))
+```
+
+```{r}
+newdat <- data.frame(treat_dummy=c(0,1))
+(phat <- predict(object = polr_treatmodel, newdat, type="p"))
+```
+
+```{r}
+polr_anti_treatmodel <- d_antitreatment_exp[,polr(as.factor(Y4_num)~treat_dummy,Hess=TRUE)]
+summary(polr_anti_treatmodel)
+coef(polr_anti_treatmodel)
+exp(coef(polr_anti_treatmodel))
+```
+
+
+```{r}
+newdat <- data.frame(treat_dummy=c(0,1))
+(phat <- predict(object = polr_anti_treatmodel, newdat, type="p"))
+```
+
+
+```{r}
+counts_education <- table(d[!is.na(Y1_num)&Progress==100,Group] ,
+                d[!is.na(Y1_num)&Progress==100,Education]
+               )
+barplot(counts_education, main="Education distribution by Treatment Group",
+  xlab="Education Level", col=c("darkblue","red","green"),
+  legend = rownames(counts_education), beside=TRUE)
+```

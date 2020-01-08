@@ -1,0 +1,398 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+library(MASS)
+library(data.table) 
+library(stargazer)
+library(foreign)
+library(knitr)
+library(sandwich)
+library(lmtest)
+library(AER)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(ggthemes)
+library(MatchIt)
+library(corrplot)
+#prevent scientific notation
+options(scipen=999)
+```
+
+```{r}
+d_raw <- fread('./FinalData_AJ.csv')
+```
+```{r}
+d_raw
+```
+
+```{r}
+#Subset the columns from raw data into data table on which we would work 
+columns <- c("Progress","Y1","Y2","Y3","Y4","Y5","Y6","Y7",
+             "Age","Education","Gender","LivingAreaAffected","ClimateChangeAwareness",
+             "PreTreatment","Income","PoliticalView","Community","Group","SurveyTime",
+             "CovariateTime","RejectedOutcomeQuestions","RejectedCovariateQuestions") 
+d <- d_raw[,..columns]
+#Create lookup for likert scales one for positive questions
+support_likert_scale <- c('Strongly agree'=5,'Strongly Agree'=5,
+                          'Somewhat agree'=4,'Somewhat Agree'=4,
+                          'Neither agree nor disagree'=3,'Neither Agree nor Disagree'=3,
+                          'Neither agree or disagree'=3,'Neither Agree or Disagree'=3,
+                          'Somewhat disagree'=2,'Somewhat Disagree'=2,
+                          'Strongly disagree'=1,'Strongly Disagree'=1)
+#lookup for negative questions 4 and 6
+
+anti_likert_scale <- c('Strongly agree'=1,'Strongly Agree'=1,
+                          'Somewhat agree'=2,'Somewhat Agree'=2,
+                          'Neither agree nor disagree'=3,'Neither Agree nor Disagree'=3,
+                          'Neither agree or disagree'=3,'Neither Agree or Disagree'=3,
+                          'Somewhat disagree'=4,'Somewhat Disagree'=4,
+                          'Strongly disagree'=5,'Strongly Disagree'=5)
+
+
+#convert character to numeric value for the likert scale output variables
+#d[,Y1_num:=support_likert_scale[Y1]]
+#d[,Y2_num:=support_likert_scale[Y2]]
+#d[,Y3_num:=support_likert_scale[Y3]]
+#d[,Y4_num:=anti_likert_scale[Y4]]
+#d[,Y5_num:=support_likert_scale[Y5]]
+#d[,Y6_num:=anti_likert_scale[Y6]]
+#d[,Y7_num:=support_likert_scale[Y7]]
+
+d[,c("Y1_num","Y2_num","Y3_num","Y4_num","Y5_num","Y6_num","Y7_num") :=
+    list(support_likert_scale[Y1],
+      support_likert_scale[Y2],
+      anti_likert_scale[Y3],
+      support_likert_scale[Y4],
+      anti_likert_scale[Y5],
+      support_likert_scale[Y6],
+      support_likert_scale[Y7])
+ ]
+#Add ordered factor for the Y_nums 
+d[,c("Y1_num_factor","Y2_num_factor","Y3_num_factor","Y4_num_factor",
+     "Y5_num_factor","Y6_num_factor","Y7_num_factor") :=
+    list(factor(Y1_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y2_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y3_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y4_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y5_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y6_num,ordered=T,levels=c(1,2,3,4,5)),
+      factor(Y7_num,ordered=T,levels=c(1,2,3,4,5))
+      )
+ ]
+
+#add factor variables for the covariates
+d[,c("Age_factor","Education_factor","Gender_factor","LivingAreaAffected_factor",
+     "ClimateChangeAwareness_factor","PreTreatment_factor","Income_factor",
+     "PoliticalView_factor","Community_factor") := 
+    list(factor(Age,ordered=T,levels=c("Less than 25 years",
+                                "25-34 years",
+                                "35-44 years",
+                                "45-54 years",
+                                "55 years or older")),
+         factor(Education,ordered=T,levels=c("Less than high school",
+                                              "High school graduate",
+                                              "Some college",
+                                              "2 year degree",
+                                              "4 year degree",
+                                              "Professional degree",
+                                              "Doctorate"
+                                             )),
+         factor(Gender,ordered=F,levels=c("",
+                                          "Male",
+                                          "Female",
+                                          "Other")),
+         factor(LivingAreaAffected,ordered=T,levels=c("No","Yes")),
+         factor(ClimateChangeAwareness,ordered=T,levels=c("","No","Yes")),
+         factor(PreTreatment,ordered=T,levels=c("",
+                                                "Strongly disagree",
+                                                "Somewhat disagree",
+                                                "Neither agree nor disagree",
+                                                "Somewhat agree",
+                                                "Strongly agree"
+                                               )),
+         factor(Income,ordered=T,levels=c("Less than $50,000",
+                                          "$50,000 - $74,000",
+                                          "$75,000 - $99,000",
+                                          "$100,000 - $149,000",
+                                          "More than $150,000")),
+         factor(PoliticalView,ordered=F,levels=c("Very Liberal",
+                                                 "Slightly Liberal",
+                                                 "Slightly Conservative",
+                                                 "Very Conservative",
+                                                 "Neither Conservative nor Liberal")),
+         factor(Community,ordered=F,levels=c("Urban",
+                                             "Suburban",
+                                             "Rural"
+                                             ))
+         )]
+```
+```{r}
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(mean(Y1_num,na.rm = T),mean(Y2_num,na.rm = T), mean(Y3_num,na.rm =T), mean(Y4_num,na.rm =T),
+     mean(Y5_num,na.rm =T),mean(Y6_num,na.rm =T),mean(Y7_num,na.rm =T)),
+  by=Group]
+d[!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",
+  .(sd(Y1_num,na.rm = T),sd(Y2_num,na.rm = T), sd(Y3_num,na.rm =T), sd(Y4_num,na.rm =T),
+     sd(Y5_num,na.rm =T),sd(Y6_num,na.rm =T),sd(Y7_num,na.rm =T)),
+  by=Group]
+```
+#Covariate balance check
+```{r}
+#test for covariate balance 
+#subset placebo and treatment 
+d_treatment_exp <- d[Group %in% c('Placebo','Treatment')&!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+d_treatment_exp[,treat_dummy:=ifelse(Group=='Placebo',0,1)]
+lm1_treat <- d_treatment_exp[,lm(treat_dummy~1)]
+lm2_treat <- d_treatment_exp[,lm(treat_dummy~Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+( anova_test_report_treat_exp <- anova(lm1_treat,lm2_treat,test='F') )
+
+#subset placebo and antitreatment
+d_antitreatment_exp <- d[Group %in% c('Placebo','AntiTreatment')&!is.na(Y1_num)&Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+d_antitreatment_exp[,treat_dummy:=ifelse(Group=='Placebo',0,1)]
+lm1_antitreat <- d_antitreatment_exp[,lm(treat_dummy~1)]
+lm2_antitreat <- d_antitreatment_exp[,lm(treat_dummy~Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+( anova_test_report_antitreat_exp <- anova(lm1_antitreat,lm2_antitreat,test='F') )
+
+```
+
+```{r}
+m.out = matchit(treat_dummy ~ Age_factor + Education_factor + Gender_factor + 
+                LivingAreaAffected_factor + ClimateChangeAwareness_factor + 
+                PreTreatment_factor + Income_factor + PoliticalView_factor + 
+                Community_factor,
+                data = d_treatment_exp, method = "nearest",
+                ratio = 1)
+summary(m.out)
+plot(m.out, type = "jitter")
+plot(m.out, type = "hist")
+```
+
+```{r}
+m.out = matchit(treat_dummy ~ Age_factor + Education_factor + Gender_factor + 
+                LivingAreaAffected_factor + ClimateChangeAwareness_factor + 
+                PreTreatment_factor + Income_factor + PoliticalView_factor + 
+                Community_factor,
+                data = d_antitreatment_exp, method = "nearest",
+                ratio = 1)
+summary(m.out)
+plot(m.out, type = "jitter")
+plot(m.out, type = "hist")
+```
+#Check if there is differential attrition 
+```{r}
+d_attrition_row <- d[,
+                    .(type_of_attrition = ifelse(Progress==100 & 
+                                                 RejectedOutcomeQuestions!="Yes" &
+                                                 RejectedCovariateQuestions!="Yes",
+                                                 "Valid",
+                                                 ifelse(Progress==100,
+                                                        "Rejected",
+                                                        "Didn't Complete")
+                                                 )
+                      ), by=.(Group)]
+(d_attrition_summary_table <- table(d_attrition_row$Group,d_attrition_row$type_of_attrition))
+chisq.test(d_attrition_summary_table)
+```
+```{r}
+ggplot(d_attrition_row[,.N,by=.(Group,type_of_attrition)],
+       aes(x=Group,fill=type_of_attrition,y=N))+geom_bar(position="dodge", stat="identity")
+```
+
+#Check survey time taken has statically different between groups
+```{r}
+#Rank sum test for time taken to answer survey comparing treatment and placebo
+(d_treatment_exp[,wilcox.test(SurveyTime~Group)])
+#t test for time taken to answer survey comparing treatment and placebo
+(d_treatment_exp[,t.test(SurveyTime~Group)])
+
+#Rank sum test for time taken to answer survey comparing antitreatment and placebo
+(d_antitreatment_exp[,wilcox.test(SurveyTime~Group)])
+
+#t test for time taken to answer survey comparing antitreatment and placebo
+(d_antitreatment_exp[,t.test(SurveyTime~Group)])
+```
+
+```{r}
+#d_treatment_exp[,plot(treat_dummy,jitter(Y2_num))]
+#lm_treat_test <- d_treatment_exp[,lm(Y1_num~treat_dummy+PreTreatment_factor+Education_factor+ClimateChangeAwareness_factor)]
+lm_treat_test <- d_treatment_exp[,lm(Y1_num~treat_dummy+Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+print(summary(lm_treat_test))
+```
+```{r}
+lm_treat_test_2 <- d_treatment_exp[,lm(Y1_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_2,se=list(sqrt(diag(vcovHC(lm_treat_test_2)))),type='text',header=F) 
+```
+```{r}
+lm_treat_test_3 <- d_treatment_exp[,lm(Y2_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_3,se=list(sqrt(diag(vcovHC(lm_treat_test_3)))),type='text',header=F)
+```
+```{r}
+lm_treat_test_4 <- d_treatment_exp[,lm(Y3_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_4,se=list(sqrt(diag(vcovHC(lm_treat_test_4)))),type='text',header=F)
+```
+
+```{r}
+lm_treat_test_5 <- d_treatment_exp[,lm(Y4_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_5,se=list(sqrt(diag(vcovHC(lm_treat_test_5)))),type='text',header=F)
+```
+```{r}
+lm_treat_test_6 <- d_treatment_exp[,lm(Y5_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_6,se=list(sqrt(diag(vcovHC(lm_treat_test_6)))),type='text',header=F)
+```
+```{r}
+lm_treat_test_7 <- d_treatment_exp[,lm(Y6_num~treat_dummy+PreTreatment)]
+stargazer(lm_treat_test_7,se=list(sqrt(diag(vcovHC(lm_treat_test_7)))),type='text',header=F)
+```
+
+```{r}
+#d_antitreatment_exp[,plot(treat_dummy,jitter(Y2_num))]
+#lm_antitreat_test <- d_antitreatment_exp[,lm(Y1_num~treat_dummy+PreTreatment_factor+Education_factor+ClimateChangeAwareness_factor)]
+lm_antitreat_test <- d_antitreatment_exp[,lm(Y1_num~treat_dummy+Age_factor+Education_factor+Gender_factor+	LivingAreaAffected_factor+ClimateChangeAwareness_factor+PreTreatment_factor+Income_factor+	PoliticalView_factor+	Community_factor)]
+print(summary(lm_antitreat_test))
+```
+
+```{r}
+lm_antitreat_test_2 <- d_antitreatment_exp[,lm(Y1_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_2,se=list(sqrt(diag(vcovHC(lm_antitreat_test_2)))),type='text',header=F)
+```
+
+```{r}
+lm_antitreat_test_3 <- d_antitreatment_exp[,lm(Y2_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_3,se=list(sqrt(diag(vcovHC(lm_antitreat_test_3)))),type='text',header=F)
+```
+
+```{r}
+lm_antitreat_test_4 <- d_antitreatment_exp[,lm(Y3_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_4,se=list(sqrt(diag(vcovHC(lm_antitreat_test_4)))),type='text',header=F)
+```
+
+```{r}
+lm_antitreat_test_5 <- d_antitreatment_exp[,lm(Y4_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_5,se=list(sqrt(diag(vcovHC(lm_antitreat_test_5)))),type='text',header=F)
+```
+
+```{r}
+lm_antitreat_test_6 <- d_antitreatment_exp[,lm(Y5_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_6,se=list(sqrt(diag(vcovHC(lm_antitreat_test_6)))),type='text',header=F)
+```
+
+```{r}
+lm_antitreat_test_7 <- d_antitreatment_exp[,lm(Y6_num~treat_dummy+PreTreatment)]
+stargazer(lm_antitreat_test_7,se=list(sqrt(diag(vcovHC(lm_antitreat_test_7)))),type='text',header=F)
+```
+
+
+```{r,results='asis'}
+d_treatment_exp[,SuperGroup:="Treatment"]
+d_antitreatment_exp[,SuperGroup:="AntiTreatment"]
+d_compare_set <- rbind(d_treatment_exp,d_antitreatment_exp)
+d_compare_set[,AntiTreatGroup:=ifelse(SuperGroup=="AntiTreatment",1,0)]
+d_compare_set[,treat_dummy:=ifelse(Group=="Placebo",0,1)]
+lm_treat_vs_anti_1 <- d_compare_set[,lm(Y1_num~treat_dummy+AntiTreatGroup+AntiTreatGroup*treat_dummy+PreTreatment)]
+lm_treat_vs_anti_2 <- d_compare_set[,lm(Y2_num~treat_dummy+AntiTreatGroup+AntiTreatGroup*treat_dummy+PreTreatment)]
+lm_treat_vs_anti_3 <- d_compare_set[,lm(Y4_num~treat_dummy+AntiTreatGroup+AntiTreatGroup*treat_dummy+PreTreatment)]
+stargazer(lm_treat_vs_anti_1,lm_treat_vs_anti_2,lm_treat_vs_anti_3,se=list(sqrt(diag(vcovHC(lm_treat_vs_anti_1))),sqrt(diag(vcovHC(lm_treat_vs_anti_2))),sqrt(diag(vcovHC(lm_treat_vs_anti_3)))),header=F)
+
+```
+
+```{r}
+d_compare_set <- rbind(d_treatment_exp,d_antitreatment_exp)
+```
+
+
+```{r}
+polr_treat_test_1 <- d_treatment_exp[,polr(Y1_num_factor~treat_dummy+PreTreatment,Hess = T)]
+ctable_treat_test_1 <- coef(summary(polr_treat_test_1))
+p <- round(pnorm(abs(ctable_treat_test_1[, "t value"]), lower.tail = FALSE) * 2,5)
+interpret <- exp(coef(polr_treat_test_1))
+ctable_treat_test_1 <- cbind(ctable_treat_test_1, "p value" = p)
+ctable_treat_test_1 <- cbind(ctable_treat_test_1,"exp.coef" = interpret)
+print(data.frame(ctable_treat_test_1))
+```
+
+```{r}
+polr_anti_treat_test_1 <- d_antitreatment_exp[,polr(Y1_num_factor~treat_dummy+PreTreatment,Hess = T)]
+ctable_anti_treat_test_1 <- coef(summary(polr_anti_treat_test_1))
+p <- round(pnorm(abs(ctable_anti_treat_test_1[, "t value"]), lower.tail = FALSE) * 2,5)
+interpret <- exp(coef(polr_anti_treat_test_1))
+ctable_anti_treat_test_1 <- cbind(ctable_anti_treat_test_1, "p value" = p)
+ctable_anti_treat_test_1 <- cbind(ctable_anti_treat_test_1,"exp.coef" = interpret)
+print(data.frame(ctable_anti_treat_test_1))
+```
+
+```{r}
+polr_anti_treat_test_2 <- d_antitreatment_exp[,polr(Y2_num_factor~treat_dummy+PreTreatment,Hess = T)]
+
+ctable_anti_treat_test_2 <- coef(summary(polr_anti_treat_test_2))
+p <- round(pnorm(abs(ctable_anti_treat_test_2[, "t value"]), lower.tail = FALSE) * 2,5)
+interpret <- exp(coef(polr_anti_treat_test_2))
+ctable_anti_treat_test_2 <- cbind(ctable_anti_treat_test_2, "p value" = p)
+ctable_anti_treat_test_2 <- cbind(ctable_anti_treat_test_2,"exp.coef" = interpret)
+print(data.frame(ctable_anti_treat_test_2))
+```
+```{r}
+data_plot <- d[Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+g <- ggplot(data_plot)
+plot1 <- g + geom_boxplot(aes(x=Age_factor, y=Y1_num, fill=Group))+labs(x='Age',y='Y1')
+plot2 <- g+geom_boxplot(aes(x=Education_factor, y=Y1_num, fill=Group))+labs(x='Education',y='Y1')+theme(axis.text.x = element_text(size=5))
+plot3 <- g+geom_boxplot(aes(x=Gender_factor, y=Y1_num, fill=Group))+labs(x='Gender',y='Y1')
+plot4 <- g+geom_boxplot(aes(x=LivingAreaAffected_factor, y=Y1_num, fill=Group))+labs(x='Affected by Climate Change',y='Y1')
+plot5 <- g+geom_boxplot(aes(x=ClimateChangeAwareness_factor, y=Y1_num, fill=Group))+labs(x='Climate Change Awareness',y='Y1')
+plot6 <- g+geom_boxplot(aes(x=Income_factor, y=Y1_num, fill=Group))+labs(x='Income',y='Y1')+theme(axis.text.x = element_text(size=5))
+plot7 <- g+geom_boxplot(aes(x=PreTreatment_factor, y=Y1_num, fill=Group))+labs(x='Pre Experiment Perception',y='Y1')+theme(axis.text.x = element_text(size=5))
+plot8 <- g+geom_boxplot(aes(x=PoliticalView_factor, y=Y1_num, fill=Group))+labs(x='Political View',y='Y1')+theme(axis.text.x = element_text(size=5))
+plot9 <- g+geom_boxplot(aes(x=Community_factor, y=Y1_num, fill=Group))+labs(x='Community',y='Y1')
+grid.arrange(plot1,plot2,nrow=2)
+grid.arrange(plot3,plot4,nrow=2)
+grid.arrange(plot5,plot6,nrow=2)
+grid.arrange(plot8,plot9,nrow=2)
+grid.arrange(plot7,nrow=2)
+```
+```{r}
+data_plot2 <- d[Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+g2 <- ggplot(data_plot)+theme(axis.text.x = element_text(size=7))
+plot1<- g2 + geom_boxplot(aes(x=Group, y=Y1_num, fill=Group))+labs(x='Group',y='Y1')
+plot2<- g2 + geom_boxplot(aes(x=Group, y=Y2_num, fill=Group))+labs(x='Group',y='Y2')
+plot3<- g2 + geom_boxplot(aes(x=Group, y=Y3_num, fill=Group))+labs(x='Group',y='Y3')
+plot4<- g2 + geom_boxplot(aes(x=Group, y=Y4_num, fill=Group))+labs(x='Group',y='Y4')
+plot5<- g2 + geom_boxplot(aes(x=Group, y=Y5_num, fill=Group))+labs(x='Group',y='Y5')
+plot6<- g2 + geom_boxplot(aes(x=Group, y=Y6_num, fill=Group))+labs(x='Group',y='Y6')
+grid.arrange(plot1,plot2,plot3,plot4,plot5,plot6,ncol=2)
+```
+```{r}
+data_plot <- d[Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",]
+g <- ggplot(data_plot)
+plot1 <- g + geom_boxplot(aes(x=Age_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Age',y='Y')
+plot2 <- g+geom_boxplot(aes(x=Education_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Education',y='Y')+theme(axis.text.x = element_text(size=5))
+plot3 <- g+geom_boxplot(aes(x=Gender_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Gender',y='Y')
+plot4 <- g+geom_boxplot(aes(x=LivingAreaAffected_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Affected by Climate Change',y='Y')
+plot5 <- g+geom_boxplot(aes(x=ClimateChangeAwareness_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Climate Change Awareness',y='Y')
+plot6 <- g+geom_boxplot(aes(x=Income_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Income',y='Y')+theme(axis.text.x = element_text(size=5))
+plot7 <- g+geom_boxplot(aes(x=PreTreatment_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Pre Experiment Perception',y='Y')+theme(axis.text.x = element_text(size=5))
+plot8 <- g+geom_boxplot(aes(x=PoliticalView_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Political View',y='Y')+theme(axis.text.x = element_text(size=5))
+plot9 <- g+geom_boxplot(aes(x=Community_factor, y=Y1_num+Y2_num+Y3_num+Y4_num+Y5_num+Y6_num, fill=Group))+labs(x='Community',y='Y')
+grid.arrange(plot1,plot2,nrow=2)
+grid.arrange(plot3,plot4,nrow=2)
+grid.arrange(plot5,plot6,nrow=2)
+grid.arrange(plot8,plot9,nrow=2)
+grid.arrange(plot7,nrow=2)
+```
+```{r}
+M<-cor(d[Progress==100&RejectedOutcomeQuestions!="Yes"&RejectedCovariateQuestions!="Yes",.(Y1_num,Y2_num,Y3_num,Y4_num,Y5_num,Y6_num)])
+head(round(M,2))
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corrplot(M, method="circle",type="upper",col=col(200),addCoef.col = "black")
+```
+```{r,results='asis'}
+stargazer(lm_treat_test_2,se=list(sqrt(diag(vcovHC(lm_treat_test_2)))),type="latex",header=F)
+```
+```{r,results='asis'}
+stargazer(lm_antitreat_test_2,lm_antitreat_test_3,lm_antitreat_test_5,se=list(sqrt(diag(vcovHC(lm_antitreat_test_2))),sqrt(diag(vcovHC(lm_antitreat_test_3))),sqrt(diag(vcovHC(lm_antitreat_test_5)))),type="latex",header=F)
+```
+
